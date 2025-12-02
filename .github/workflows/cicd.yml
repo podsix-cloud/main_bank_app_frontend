@@ -1,5 +1,5 @@
 
-name: Bank Frontend Pipeline with self-hosted
+name: Bank Frontend Pipeline
 
 on:
   push:
