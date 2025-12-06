@@ -1,27 +1,25 @@
-
-name: Bank Frontend cicd Pipeline
+name: Bank Frontend CICD Pipeline
 
 on:
   push:
     branches:
       - main
-  # pull_request:
-  #   branches:
-  #     - cicd
 
 jobs:
   Continues-Integration_build_and_push:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest    # FIXED (don't use self-hosted)
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      with:
-        repository: podsix-cloud/main_bank_app_frontend
-        ref: main
 
-    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
+    - name: Create .dockerignore to avoid tar errors
+      run: |
+        echo ".devcontainer" >> .dockerignore
+        echo ".github" >> .dockerignore
 
     - name: Log in to awscli
       uses: aws-actions/configure-aws-credentials@v3
@@ -30,50 +28,47 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
 
+    - name: Log in to Amazon ECR
+      run: |
+        aws ecr get-login-password --region us-east-1 | \
+        docker login --username AWS --password-stdin ${{ vars.ECR_REPO }}
 
     - name: Build container image
-      run: docker build -t bank-app-frontend:latest .
+      run: docker buildx build --load -t bank-app-frontend:latest .
 
-    - name: Log in to ECR with short-lived credentials
-      run: |
-        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ vars.ECR_REPO }}
-  
     - name: Tag Docker image
       run: docker tag bank-app-frontend:latest ${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}
-    
+
     - name: Push image to ECR
       run: docker push ${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}
 
-
-    - name: Clean up Docker image locally
+    - name: Cleanup images
       run: |
-        docker rmi bank-app-frontend:latest
-        docker rmi ${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}
-
-    - name: Clean up GitHub repo on runner
-      run: rm -rf ./*
+        docker rmi bank-app-frontend:latest || true
+        docker rmi ${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }} || true
 
 
-  
+
   Continues-Update_k8s_manifest:
     runs-on: ubuntu-latest
     needs: Continues-Integration_build_and_push
+
     steps:
-    - name: Checkout repository.
+    - name: Checkout Kubernetes Manifest Repo
       env:
-          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
-          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+        GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+        GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
       run: |
-         git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/podsix-cloud/kubernetes-manifest.git
-         
-         cd kubernetes-manifest
-         git config --global user.email "okoro.christianpeace@gmail.com"
-         git config --global user.name "podsix-cloud"
+        git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/podsix-cloud/kubernetes-manifest.git
+        cd kubernetes-manifest
 
-         sed -i "s+${{ vars.ECR_REPO }}/bank-frontend:.*+${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}+g" ./bank-project/frontend.yaml
+        git config --global user.email "okoro.christianpeace@gmail.com"
+        git config --global user.name "podsix-cloud"
 
-         cat ./bank-project/frontend.yaml | grep -q "${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}"
+        sed -i "s+${{ vars.ECR_REPO }}/bank-frontend:.*+${{ vars.ECR_REPO }}/bank-frontend:${{ github.run_number }}+g" \
+        ./bank-project/frontend.yaml
 
-         git add bank-project/frontend.yaml
-         git commit -m "Update frontend image to version ${{ github.run_number }}"
-         git push origin main
+        git add bank-project/frontend.yaml
+        git commit -m "Update frontend image to version ${{ github.run_number }}"
+        git push origin main
+
