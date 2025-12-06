@@ -1,5 +1,5 @@
 
-name: Bank Frontend Pipeline updated
+name: Bank Frontend cicd Pipeline
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
 
 jobs:
   Continues-Integration_build_and_push:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
     - name: Checkout repository
@@ -19,6 +19,8 @@ jobs:
       with:
         repository: podsix-cloud/main_bank_app_frontend
         ref: main
+
+    
 
 
     - name: Log in to awscli
